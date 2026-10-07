@@ -1,6 +1,14 @@
 <script lang="ts">
   import { editor } from '../lib/state.svelte';
-  import { CELL_COUNT, N, colOf, rowOf, type CellIndex } from '../lib/puzzle';
+  import {
+    CELL_COUNT,
+    N,
+    colOf,
+    puzzleFingerprint,
+    rowOf,
+    type CellIndex
+  } from '../lib/puzzle';
+  import { buildDivergenceView } from '../lib/divergence';
 
   let canvas: HTMLCanvasElement;
   const CELL = 56; // CSS 像素/格
@@ -33,10 +41,27 @@
     void editor.showSolution;
     void editor.analysis;
     void editor.selectedCell;
+    void editor.selectedDivergence;
     void hover;
     void dpr;
     return 1;
   });
+
+  // 分歧视图：严格门槛（multiple + 两份完整不同网格 + 指纹匹配）；
+  // 不满足时恒为 null，画布绝不画"伪第二解"。
+  const divergence = $derived(
+    editor.puzzle
+      ? buildDivergenceView(
+          editor.puzzle,
+          editor.analysis.result,
+          editor.analysis.fingerprint,
+          puzzleFingerprint(editor.puzzle)
+        )
+      : null
+  );
+  const divergenceCells = $derived(
+    divergence ? new Set(divergence.cells.map((d) => d.cell)) : (new Set<number>() as Set<number>)
+  );
 
   $effect(() => {
     void tick;
@@ -55,6 +80,8 @@
 
     const p = editor.puzzle;
     if (!p) return;
+    // 取一次本地引用：本次绘制全程使用同一视图快照（可能为 null）
+    const dv = divergence;
 
     // 1) 宫底色
     for (let i = 0; i < CELL_COUNT; i++) {
@@ -67,6 +94,13 @@
     ctx.fillStyle = 'rgba(220, 38, 38, 0.22)';
     editor.highlightCells.forEach((i) => {
       ctx.fillRect(colOf(i) * CELL, rowOf(i) * CELL, CELL, CELL);
+    });
+
+    // 2b) 分歧格：两解取值不同的格子（仅多解且指纹匹配时 dv 非 null）
+    dv?.cells.forEach((d) => {
+      ctx.fillStyle =
+        editor.selectedDivergence === d.cell ? 'rgba(126, 34, 206, 0.30)' : 'rgba(126, 34, 206, 0.16)';
+      ctx.fillRect(colOf(d.cell) * CELL, rowOf(d.cell) * CELL, CELL, CELL);
     });
 
     // 悬停
@@ -84,6 +118,19 @@
         CELL - 3,
         CELL - 3
       );
+    }
+    // 分歧视图选中格：紫色虚线粗框（可与蓝框并存）
+    if (editor.selectedDivergence !== null && divergenceCells.has(editor.selectedDivergence)) {
+      ctx.strokeStyle = '#7e22ce';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(
+        colOf(editor.selectedDivergence) * CELL + 2,
+        rowOf(editor.selectedDivergence) * CELL + 2,
+        CELL - 4,
+        CELL - 4
+      );
+      ctx.setLineDash([]);
     }
 
     // 3) 温度计（先画线和泡，置于格线之下）
@@ -154,9 +201,31 @@
       ctx.fillStyle = '#2563eb';
       for (let i = 0; i < CELL_COUNT; i++) {
         if (p.givens[i]) continue;
+        // 分歧格已在第 7 步以角标显示两解数字，避免中心大字与角标重叠
+        if (dv && divergenceCells.has(i)) continue;
         const [cx, cy] = center(i);
         ctx.fillText(String(sol[i]), cx, cy + 1);
       }
+    }
+
+    // 7) 分歧数字：在每个分歧格内并排显示两解的值。
+    //    左上蓝色 = 首解 M1，右下紫色 = 二解 M2。纯展示，点击也不会写入题面。
+    if (dv) {
+      ctx.font = `700 ${CELL * 0.34}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      for (const d of dv.cells) {
+        const x = colOf(d.cell) * CELL;
+        const y = rowOf(d.cell) * CELL;
+        ctx.fillStyle = '#2563eb';
+        ctx.fillText(String(d.a), x + CELL * 0.10, y + CELL * 0.08);
+        ctx.fillStyle = '#7e22ce';
+        ctx.textAlign = 'right';
+        ctx.fillText(String(d.b), x + CELL * 0.92, y + CELL * 0.58);
+        ctx.textAlign = 'left';
+      }
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
     }
   }
 
@@ -189,6 +258,11 @@
     const cell = eventCell(e);
     if (cell === null) return;
     painting = true;
+    // 提示工具下点中分歧格：同步选中分歧检查器（仅在分歧视图有效时）。
+    // 宫区/温度计等编辑工具保持原有行为，不抢占分歧选择。
+    if (editor.tool === 'givens' && divergenceCells.has(cell)) {
+      editor.selectDivergenceCell(cell);
+    }
     editor.onCellClick(cell);
   }
   function onMove(e: MouseEvent) {

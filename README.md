@@ -42,6 +42,31 @@
 
 （9 之后没有更大数字，二者直接冲突。）
 
+## 多解分歧视图（`src/lib/divergence.ts`）
+
+判定为 `multiple` 后，作者需要知道**两组解究竟在哪里分叉**，才能决定补哪条
+提示。分歧视图是建立在两次 check 结果（M1 `solution` 与 M2 `witness`）之上的
+**只读派生层**，显示门槛极严格（`buildDivergenceView` 全部满足才非 null）：
+
+1. 结论 `verdict === 'multiple'`（确实排除首解后又求出一个解）；
+2. `solution` / `witness` 都是完整的 1..9 网格且至少有一格不同；
+3. 结论登记的题面指纹与当前题面指纹**仍匹配**。
+
+满足时：
+
+- 画布以紫色底突出所有**分歧格**，格内左上蓝数字= M1、右下紫数字 = M2；
+- 检查面板列出每个分歧格的坐标与两解数字，可在列表或画布上选一格；
+- 选中格显示其**行 / 列 / 宫**在两解中的完整取值（各自仍是 1–9 排列），
+  以及所有经过该格的**温度计**沿路径的两解取值与递增关系。
+
+工具**只展示**这些信息，不提供"把解填成提示"的按钮：作者自行判断后切到提示
+工具手工补数字。题面一旦改动，指纹失效使 `analysis` 与分歧选择立即复位
+（`EditorState.revalidate()` / `selectedDivergence`），旧分歧不再可见，必须重新
+检查。`unique` / `unsat` / `unknown`（超时）时视图恒为空，**不显示伪第二解**。
+
+分歧数据派生自作者私有的检查结论，只存在于内存/IndexedDB 草稿，
+**不进入** `exportPuzzle()` 的公开题面。
+
 ## 改一个提示 → 旧结论失效
 
 每次检查记录所针对题面的指纹（`puzzleFingerprint`）。题面一旦改动（哪怕只改一个
@@ -87,7 +112,7 @@ node scripts/gen-samples.mjs   # 生成不规则宫、最小化提示，双重 c
 ```bash
 npm install        # 会自动把 z3 的 wasm 产物复制到 public/vendor
 npm run dev        # 开发服务器（已带 COOP/COEP 头）
-npm test           # 21 个单测（含 Z3 对三类样例的判定）
+npm test           # 45 个单测（含 Z3 对三类样例的判定与多解分歧端到端验收）
 npm run check      # svelte-check 类型检查
 npm run build      # 产出 dist/
 node scripts/serve.mjs dist   # 以 COOP/COEP 头本地预览
@@ -105,12 +130,13 @@ node scripts/serve.mjs dist   # 以 COOP/COEP 头本地预览
 ```
 src/lib/puzzle.ts        # 领域模型 + 结构校验 + 导入导出
 src/lib/solver.ts        # Bool CNF 编码、addAndTrack 标注、两次 check、矛盾核
+src/lib/divergence.ts    # 多解分歧：分歧格、选中格行/列/宫/温度计对照（只读派生层）
 src/lib/z3-init.ts       # 浏览器(全局 initZ3)/Node 双入口初始化
 src/lib/samples.ts       # 三类样例
 src/lib/sample-data.ts   # 生成脚本固化的数据（无答案层）
 src/lib/storage.ts       # IndexedDB 题稿
-src/lib/state.svelte.ts  # 编辑器状态、指纹失效
-src/components/*         # Canvas / 工具栏 / 检查面板 / 草稿 / 导入导出
+src/lib/state.svelte.ts  # 编辑器状态、指纹失效、分歧选择
+src/components/*         # Canvas / 工具栏 / 检查面板 / 分歧面板 / 草稿 / 导入导出
 scripts/gen-regions.mjs  # 不规则宫生成
 scripts/gen-samples.mjs  # 样例生成 + 双重 check 验证
 scripts/copy-z3.mjs      # 复制 wasm 产物

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { editor } from '../lib/state.svelte';
   import { rowOf, colOf } from '../lib/puzzle';
+  import DivergencePanel from './DivergencePanel.svelte';
 
   const a = $derived(editor.analysis);
 
@@ -104,6 +105,11 @@
         已找到至少两个不同的合法填法（排除首解后仍能再求出一个解），
         因此题目不唯一。增加提示或温度计约束后再检查。
       </p>
+      <!--
+        分歧视图自带严格门槛：只有 multiple + 两解完整不同 + 题面指纹匹配才渲染。
+        唯一 / 无解 / 超时 / 题面已改动 时这里什么都不显示，不会出现伪第二解。
+      -->
+      <DivergencePanel />
     {/if}
   {/if}
 

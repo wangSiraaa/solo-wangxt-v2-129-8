@@ -41,6 +41,11 @@ export class EditorState {
   showSolution = $state<boolean>(false);
   /** 当前选中格（givens 工具下由数字键/数字盘写入） */
   selectedCell = $state<number | null>(null);
+  /**
+   * 分歧视图中当前查看的格子（仅在多解且指纹匹配时有意义）。
+   * 派生展示层（divergence.ts）会在状态不满足时拒绝渲染。
+   */
+  selectedDivergence = $state<number | null>(null);
 
   #analyzePuzzle: typeof import('./solver').analyzePuzzle | null = null;
 
@@ -48,6 +53,7 @@ export class EditorState {
     this.puzzle = puzzle;
     this.draftId = draftId;
     this.draftName = name;
+    this.selectedDivergence = null;
     this.revalidate();
     this.analysis = { status: 'idle', result: null, fingerprint: null, error: null };
   }
@@ -69,8 +75,10 @@ export class EditorState {
     this.issues = validateStructure(this.puzzle);
     const fp = puzzleFingerprint(this.puzzle);
     if (this.analysis.result && this.analysis.fingerprint !== fp) {
-      // 改了一个提示（或任何题面要素）后，旧结论立即失效
+      // 改了一个提示（或任何题面要素）后，旧结论立即失效；
+      // 旧的两解分歧也随之作废，不能再展示。
       this.analysis = { status: 'idle', result: null, fingerprint: null, error: null };
+      this.selectedDivergence = null;
     }
   }
 
@@ -185,10 +193,21 @@ export class EditorState {
     else this.setGiven(this.selectedCell, d);
   }
 
+  /**
+   * 在分歧视图中选中一格查看其行/列/宫/温度计。
+   * 仅记录"作者想看这格"；视图是否有效由 divergence.ts 的派生逻辑把关，
+   * 这里不把任何解的数字写入题面。
+   */
+  selectDivergenceCell(cell: number | null) {
+    this.selectedDivergence = cell;
+    if (cell !== null) this.selectedCell = cell;
+  }
+
   async runCheck() {
     if (!this.z3 || !this.#analyzePuzzle || this.analysis.status === 'checking') return;
     this.analysis.status = 'checking';
     this.analysis.error = null;
+    this.selectedDivergence = null;
     try {
       const result = await this.#analyzePuzzle(
         this.z3,
@@ -202,6 +221,13 @@ export class EditorState {
         fingerprint: puzzleFingerprint(this.puzzle as Puzzle),
         error: null
       };
+      // 多解时默认聚焦第一个分歧格，方便作者立即查看；可在面板/画布改选。
+      if (result.verdict === 'multiple' && result.witness && result.solution) {
+        const first = result.solution.findIndex(
+          (v, i) => v !== result.witness![i] && (this.puzzle as Puzzle).givens[i] === 0
+        );
+        this.selectedDivergence = first >= 0 ? first : null;
+      }
       // 矛盾时高亮冲突约束涉及的格子
       const cells = new Set<number>();
       result.conflict?.forEach((c) => c.cells.forEach((i) => cells.add(i)));

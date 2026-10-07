@@ -55,6 +55,14 @@
     editor.init(structuredClone(rec.puzzle), rec.id, rec.name);
     if (rec.lastCheck && rec.checkFingerprint === puzzleFingerprint(rec.puzzle)) {
       editor.analysis = { status: 'done', result: rec.lastCheck, fingerprint: rec.checkFingerprint, error: null };
+      // 恢复多解结论时默认聚焦第一个分歧格（与重新检查后的行为一致）
+      const r = rec.lastCheck;
+      if (r.verdict === 'multiple' && r.solution && r.witness) {
+        const first = r.solution.findIndex(
+          (v, i) => v !== r.witness![i] && rec.puzzle.givens[i] === 0
+        );
+        editor.selectedDivergence = first >= 0 ? first : null;
+      }
     }
     message = `已打开草稿「${rec.name}」`;
   }
