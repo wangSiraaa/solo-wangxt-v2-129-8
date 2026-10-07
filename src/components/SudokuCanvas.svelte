@@ -1,6 +1,7 @@
 <script lang="ts">
   import { editor } from '../lib/state.svelte';
   import { CELL_COUNT, N, colOf, rowOf, type CellIndex } from '../lib/puzzle';
+  import { cellContext } from '../lib/divergence';
 
   let canvas: HTMLCanvasElement;
   const CELL = 56; // CSS 像素/格
@@ -33,6 +34,8 @@
     void editor.showSolution;
     void editor.analysis;
     void editor.selectedCell;
+    void editor.divergence;
+    void editor.activeDivergenceCell;
     void hover;
     void dpr;
     return 1;
@@ -69,6 +72,30 @@
       ctx.fillRect(colOf(i) * CELL, rowOf(i) * CELL, CELL, CELL);
     });
 
+    // 2b) 分歧视图：选中分歧格时，先铺其行/列/宫的浅色关联带
+    const div = editor.divergence;
+    const divSel = editor.activeDivergenceCell;
+    if (div && divSel !== null) {
+      const info = cellContext(p, divSel);
+      ctx.fillStyle = 'rgba(217, 119, 6, 0.10)';
+      const band = new Set([...info.rowCells, ...info.colCells, ...info.regionCells]);
+      band.forEach((i) => {
+        ctx.fillRect(colOf(i) * CELL, rowOf(i) * CELL, CELL, CELL);
+      });
+    }
+    // 分歧格本体：琥珀底色 + 描边，一眼看到两解在哪些格分叉
+    if (div) {
+      ctx.fillStyle = 'rgba(217, 119, 6, 0.22)';
+      div.cells.forEach((i) => {
+        ctx.fillRect(colOf(i) * CELL, rowOf(i) * CELL, CELL, CELL);
+      });
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = 2;
+      div.cells.forEach((i) => {
+        ctx.strokeRect(colOf(i) * CELL + 1, rowOf(i) * CELL + 1, CELL - 2, CELL - 2);
+      });
+    }
+
     // 悬停
     if (hover !== null) {
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
@@ -89,27 +116,30 @@
     // 3) 温度计（先画线和泡，置于格线之下）
     p.thermometers.forEach((t, ti) => {
       const active = ti === editor.activeThermo;
+      // 分歧视图：经过选中分歧格的温度计用紫色强调
+      const throughDivSel =
+        divSel !== null && div !== null && t.path.includes(divSel);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       // 外管
-      ctx.strokeStyle = active ? '#b45309' : '#374151';
-      ctx.lineWidth = CELL * 0.4;
+      ctx.strokeStyle = throughDivSel ? '#7c3aed' : active ? '#b45309' : '#374151';
+      ctx.lineWidth = throughDivSel ? CELL * 0.46 : CELL * 0.4;
       beginPathThrough(ctx, t.path);
       ctx.stroke();
       // 内芯
-      ctx.strokeStyle = active ? '#f59e0b' : '#9ca3af';
+      ctx.strokeStyle = throughDivSel ? '#c4b5fd' : active ? '#f59e0b' : '#9ca3af';
       ctx.lineWidth = CELL * 0.26;
       beginPathThrough(ctx, t.path);
       ctx.stroke();
       // bulb（水银泡）在路径首端
       const [bx, by] = center(t.path[0]);
-      ctx.fillStyle = active ? '#f59e0b' : '#374151';
+      ctx.fillStyle = throughDivSel ? '#7c3aed' : active ? '#f59e0b' : '#374151';
       ctx.beginPath();
       ctx.arc(bx, by, CELL * 0.26, 0, Math.PI * 2);
       ctx.fill();
       // 顶端小帽
       const [tx, ty] = center(t.path[t.path.length - 1]);
-      ctx.fillStyle = active ? '#f59e0b' : '#374151';
+      ctx.fillStyle = throughDivSel ? '#7c3aed' : active ? '#f59e0b' : '#374151';
       ctx.beginPath();
       ctx.arc(tx, ty, CELL * 0.13, 0, Math.PI * 2);
       ctx.fill();
@@ -158,6 +188,32 @@
         ctx.fillText(String(sol[i]), cx, cy + 1);
       }
     }
+
+    // 7) 分歧层（仅作者本地查看，不参与导出）：
+    //    每个分歧格内画两个数字——左上=首解（蓝），右下=二解（橙）。
+    //    分歧格一定不是提示格（两解都满足全部提示），不会与题面数字重叠。
+    if (div) {
+      ctx.font = `700 ${CELL * 0.3}px ui-sans-serif, system-ui, sans-serif`;
+      div.cells.forEach((cell, k) => {
+        const x = colOf(cell) * CELL;
+        const y = rowOf(cell) * CELL;
+        ctx.fillStyle = '#2563eb';
+        ctx.fillText(String(div.first[k]), x + CELL * 0.27, y + CELL * 0.3);
+        ctx.fillStyle = '#b45309';
+        ctx.fillText(String(div.second[k]), x + CELL * 0.73, y + CELL * 0.74);
+      });
+      // 选中的分歧格：加粗琥珀边框
+      if (divSel !== null) {
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = 3.5;
+        ctx.strokeRect(
+          colOf(divSel) * CELL + 2,
+          rowOf(divSel) * CELL + 2,
+          CELL - 4,
+          CELL - 4
+        );
+      }
+    }
   }
 
   function beginPathThrough(ctx2: CanvasRenderingContext2D, path: CellIndex[]) {
@@ -190,6 +246,10 @@
     if (cell === null) return;
     painting = true;
     editor.onCellClick(cell);
+    // 分歧视图开启时，点击分歧格即选中查看其约束（不影响当前编辑工具）
+    if (editor.divergence?.cells.includes(cell)) {
+      editor.selectDivergenceCell(cell);
+    }
   }
   function onMove(e: MouseEvent) {
     hover = eventCell(e);

@@ -7,6 +7,7 @@ import {
   type StructuralIssue
 } from './puzzle';
 import type { SolveResult } from './solver';
+import { divergenceForResult, type Divergence } from './divergence';
 import { initZ3Api } from './z3-init';
 import type { Z3HighLevel } from 'z3-solver';
 
@@ -41,6 +42,33 @@ export class EditorState {
   showSolution = $state<boolean>(false);
   /** 当前选中格（givens 工具下由数字键/数字盘写入） */
   selectedCell = $state<number | null>(null);
+  /** 分歧视图中选中的分歧格（查看其行/列/宫与温度计约束） */
+  selectedDivergenceCell = $state<number | null>(null);
+
+  /**
+   * 当前生效的分歧：只有确实找到两个不同解（multiple）且结论指纹仍与
+   * 当前题面匹配时才存在。题面一改（哪怕一格）指纹即变，旧分歧立即失效；
+   * unique / unsat / unknown 结论下恒为 null，不会显示伪第二解。
+   */
+  divergence = $derived.by<Divergence | null>(() => {
+    const a = this.analysis;
+    if (a.status !== 'done' || !a.result || !a.fingerprint) return null;
+    if (!this.puzzle || a.fingerprint !== puzzleFingerprint(this.puzzle)) return null;
+    return divergenceForResult(a.result);
+  });
+
+  /** 生效中的选中分歧格：所属分歧一旦失效（题面改动/重新检查）自动归零 */
+  activeDivergenceCell = $derived<number | null>(
+    this.selectedDivergenceCell !== null &&
+      this.divergence !== null &&
+      this.divergence.cells.includes(this.selectedDivergenceCell)
+      ? this.selectedDivergenceCell
+      : null
+  );
+
+  selectDivergenceCell(cell: number | null) {
+    this.selectedDivergenceCell = cell;
+  }
 
   #analyzePuzzle: typeof import('./solver').analyzePuzzle | null = null;
 
@@ -71,6 +99,8 @@ export class EditorState {
     if (this.analysis.result && this.analysis.fingerprint !== fp) {
       // 改了一个提示（或任何题面要素）后，旧结论立即失效
       this.analysis = { status: 'idle', result: null, fingerprint: null, error: null };
+      // 旧分歧随之失效（divergence 为派生态，此处同时清掉选中格）
+      this.selectedDivergenceCell = null;
     }
   }
 
@@ -207,6 +237,8 @@ export class EditorState {
       result.conflict?.forEach((c) => c.cells.forEach((i) => cells.add(i)));
       this.issues.forEach((i) => i.cells.forEach((c) => cells.add(c)));
       this.highlightCells = cells;
+      // 新一轮检查产生新的两解，旧的分歧选中格不再有效
+      this.selectedDivergenceCell = null;
     } catch (e) {
       this.analysis.error = e instanceof Error ? e.message : String(e);
       this.analysis.status = 'idle';

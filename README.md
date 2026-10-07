@@ -20,6 +20,21 @@
 
 任何一次 `check` 超时都显示"未判定"，绝不把"只找到一次结果"当成唯一。
 
+## 多解时的分歧视图（`src/lib/divergence.ts`）
+
+判定为 `multiple` 时，两次 check 已得到两个真实存在的不同解（首解 M1 与排除
+M1 后的二解 M2）。分歧视图对比这两个解：
+
+- **只在确实找到两个不同解、且结论指纹仍与当前题面匹配时**才出现；
+  唯一 / 无解 / 未判定（超时）状态下不会显示伪第二解。
+- 画布以琥珀色标出所有**分歧格**（两解取值不同的格），格内直接画出两个数字
+  （左上蓝=解①，右下橙=解②）。
+- 面板列出每个分歧格的两解数字；选中任一格后，画布高亮其**行 / 列 / 宫**，
+  经过该格的温度计以紫色强调，面板同步列出这些约束与前后格在两解中的取值。
+- 分歧数据仅供作者手工修改提示/温度计时参考，**工具不会自动把答案填进题面**。
+- 题面一改（哪怕一格），指纹变化使旧分歧**立即失效**；分歧数据随 `SolveResult`
+  只存于内存与 IndexedDB 草稿，**绝不进入公开题面导出**（有单测断言）。
+
 ## 求解前的结构校验（`src/lib/puzzle.ts`）
 
 在调用 Z3 之前先做与可解性无关的"语法层"校验，错误会在画布高亮：
@@ -87,7 +102,7 @@ node scripts/gen-samples.mjs   # 生成不规则宫、最小化提示，双重 c
 ```bash
 npm install        # 会自动把 z3 的 wasm 产物复制到 public/vendor
 npm run dev        # 开发服务器（已带 COOP/COEP 头）
-npm test           # 21 个单测（含 Z3 对三类样例的判定）
+npm test           # 40 个单测（含 Z3 对三类样例的判定与分歧视图）
 npm run check      # svelte-check 类型检查
 npm run build      # 产出 dist/
 node scripts/serve.mjs dist   # 以 COOP/COEP 头本地预览
@@ -105,6 +120,7 @@ node scripts/serve.mjs dist   # 以 COOP/COEP 头本地预览
 ```
 src/lib/puzzle.ts        # 领域模型 + 结构校验 + 导入导出
 src/lib/solver.ts        # Bool CNF 编码、addAndTrack 标注、两次 check、矛盾核
+src/lib/divergence.ts    # 分歧视图：两解对比、分歧格的行/列/宫/温度计上下文
 src/lib/z3-init.ts       # 浏览器(全局 initZ3)/Node 双入口初始化
 src/lib/samples.ts       # 三类样例
 src/lib/sample-data.ts   # 生成脚本固化的数据（无答案层）

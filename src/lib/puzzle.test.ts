@@ -9,6 +9,7 @@ import {
   validateStructure,
   type Puzzle
 } from './puzzle';
+import { computeDivergence } from './divergence';
 
 function p(mut?: (p: Puzzle) => void): Puzzle {
   const x = blankPuzzle();
@@ -127,9 +128,29 @@ describe('导出不泄露答案层', () => {
     expect(exported).not.toHaveProperty('solution');
     expect(exported).not.toHaveProperty('lastCheck');
     expect(exported).not.toHaveProperty('answer');
+    // 分歧视图的两解/分歧数据同样属于作者私有，不得出现在公开题面
+    expect(exported).not.toHaveProperty('witness');
+    expect(exported).not.toHaveProperty('divergence');
     expect(Object.keys(exported).sort()).toEqual(
       ['exportedAt', 'format', 'givens', 'kind', 'regions', 'thermometers', 'version'].sort()
     );
+  });
+
+  it('导出函数不接收检查结论：分歧数据结构上无法混入公开题面', () => {
+    // exportPuzzle 的唯一输入是 Puzzle（regions/givens/thermometers），
+    // SolveResult（含 solution/witness）与 Divergence 只存在于内存与 IndexedDB 草稿。
+    // 这里用真实多解分歧数据模拟"导出时手边恰好有分歧"，断言导出不受影响。
+    const x = blankPuzzle();
+    x.givens[0] = 5;
+    const div = computeDivergence(
+      Array.from({ length: 81 }, (_, i) => (i % 9) + 1),
+      Array.from({ length: 81 }, (_, i) => ((i + 1) % 9) + 1)
+    );
+    expect(div).not.toBeNull();
+    const exported = JSON.stringify(exportPuzzle(x));
+    expect(exported).not.toContain('witness');
+    expect(exported).not.toContain('divergence');
+    expect(exported).not.toContain('solution');
   });
 
   it('导入导出往返一致', () => {

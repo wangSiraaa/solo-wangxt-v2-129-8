@@ -1,6 +1,7 @@
 <script lang="ts">
   import { editor } from '../lib/state.svelte';
-  import { rowOf, colOf } from '../lib/puzzle';
+  import { rowOf, colOf, coordLabel } from '../lib/puzzle';
+  import { cellContext, divergenceValueAt } from '../lib/divergence';
 
   const a = $derived(editor.analysis);
 
@@ -104,6 +105,88 @@
         已找到至少两个不同的合法填法（排除首解后仍能再求出一个解），
         因此题目不唯一。增加提示或温度计约束后再检查。
       </p>
+
+      {#if editor.divergence}
+        {@const div = editor.divergence}
+        <div class="divergence">
+          <h4>分歧视图：两解在 {div.cells.length} 格取值不同</h4>
+          <p class="legend">
+            <span class="sw first">蓝</span>=首解（解①）
+            <span class="sw second">橙</span>=二解（解②）；分歧格已在画布标出，点击下列任一格查看其约束。
+          </p>
+          <ul class="divlist">
+            {#each div.cells as cell, k (cell)}
+              <li>
+                <button
+                  class="locate"
+                  class:on={editor.activeDivergenceCell === cell}
+                  onclick={() =>
+                    editor.selectDivergenceCell(
+                      editor.activeDivergenceCell === cell ? null : cell
+                    )}
+                >
+                  {coordLabel(cell)}：①{div.first[k]} → ②{div.second[k]}
+                </button>
+              </li>
+            {/each}
+          </ul>
+
+          {#if editor.activeDivergenceCell !== null}
+            {@const sel = editor.activeDivergenceCell}
+            {@const info = cellContext(editor.puzzle, sel)}
+            {@const dv = divergenceValueAt(div, sel)}
+            {@const peers = div.cells.filter(
+              (i) =>
+                i !== sel &&
+                (rowOf(i) === rowOf(sel) ||
+                  colOf(i) === colOf(sel) ||
+                  editor.puzzle.regions[i] === editor.puzzle.regions[sel])
+            )}
+            <div class="cellctx">
+              <h4>
+                {coordLabel(sel)} 的相关约束（①{dv?.[0]} → ②{dv?.[1]}）
+                <button class="close" onclick={() => editor.selectDivergenceCell(null)}>收起</button>
+              </h4>
+              <p class="ctxline">
+                第 {info.row} 行 · 第 {info.col} 列 · 宫 {info.region + 1}
+                （画布已高亮对应行/列/宫）
+              </p>
+              {#if info.thermometers.length}
+                <ul class="ctxthermos">
+                  {#each info.thermometers as t (t.index)}
+                    <li>
+                      温度计 #{t.index + 1}：本格为第 {t.pos + 1}/{t.path.length} 格
+                      （自泡端严格递增）
+                      {#if t.pos > 0}
+                        {@const prev = t.path[t.pos - 1]}
+                        <br />前一格 {coordLabel(prev)}（①{r.solution?.[prev]} ②{r.witness?.[prev]}）&lt;
+                      {/if}
+                      {#if t.pos < t.path.length - 1}
+                        {@const next = t.path[t.pos + 1]}
+                        &lt; 后一格 {coordLabel(next)}（①{r.solution?.[next]} ②{r.witness?.[next]}）
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              {:else}
+                <p class="ctxline">无温度计经过此格。</p>
+              {/if}
+              {#if peers.length}
+                <p class="ctxline">
+                  同一行/列/宫内的其它分歧格：{peers.map(coordLabel).join('、')}
+                </p>
+              {:else}
+                <p class="ctxline">同一行/列/宫内没有其它分歧格。</p>
+              {/if}
+            </div>
+          {/if}
+
+          <p class="hint">
+            分歧数据仅供作者本地参考，不会写入导出题面；工具不会自动把答案填入题面——
+            请据此手工调整提示或温度计后重新检查。
+          </p>
+        </div>
+      {/if}
     {/if}
   {/if}
 
@@ -140,4 +223,23 @@
     margin-left: 6px; font-size: 11px; border: 1px solid #d1d5db;
     background: #fff; border-radius: 4px; padding: 1px 6px; cursor: pointer;
   }
+  .divergence { margin-top: 8px; border-top: 1px dashed #e5e7eb; padding-top: 4px; }
+  .legend { font-size: 12px; color: #6b7280; margin: 4px 0; }
+  .sw { display: inline-block; padding: 0 5px; border-radius: 4px; font-weight: 700; }
+  .sw.first { background: #dbeafe; color: #1d4ed8; }
+  .sw.second { background: #ffedd5; color: #b45309; }
+  .divlist { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+  .divlist .locate { margin-left: 0; font-size: 12px; padding: 3px 8px; }
+  .divlist .locate.on { background: #b45309; border-color: #b45309; color: #fff; }
+  .cellctx {
+    margin-top: 8px; border: 1px solid #fcd34d; background: #fffbeb;
+    border-radius: 6px; padding: 8px 10px;
+  }
+  .cellctx h4 { display: flex; justify-content: space-between; align-items: center; margin-top: 0; }
+  .close {
+    font-size: 11px; border: 1px solid #d1d5db; background: #fff;
+    border-radius: 4px; padding: 1px 6px; cursor: pointer;
+  }
+  .ctxline { font-size: 12px; color: #4b5563; margin: 4px 0; }
+  .ctxthermos { font-size: 12px; color: #4b5563; padding-left: 18px; margin: 4px 0; }
 </style>
